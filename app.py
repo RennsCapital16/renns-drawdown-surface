@@ -458,6 +458,121 @@ if "result" in st.session_state:
             use_container_width=True
         )
 
+        # MONTE CARLO PRICE PATHS
+
+        st.subheader("Monte Carlo Price Paths")
+
+        display_paths = st.selectbox(
+            "Displayed Simulation Paths",
+            [25, 50, 100, 200, 500],
+            index=2
+        )
+
+        total_paths = result["paths"]
+        trading_days = result["days"]
+
+        n = min(display_paths, total_paths)
+
+        rng_paths = np.random.default_rng(42)
+
+        dt = 1 / 252
+
+        drift = (
+            mu - 0.5 * volatility**2
+        ) * dt
+
+        diffusion = volatility * np.sqrt(dt)
+
+        log_values = np.zeros(n)
+
+        price_paths = np.zeros(
+            (n, trading_days + 1)
+        )
+
+        price_paths[:, 0] = 100
+
+        for day in range(1, trading_days + 1):
+
+            shocks = rng_paths.standard_normal(
+                total_paths
+            )[:n]
+
+            log_values += (
+                drift + diffusion * shocks
+            )
+
+            price_paths[:, day] = (
+                100 * np.exp(log_values)
+            )
+
+        path_fig = go.Figure()
+
+        for i, path in enumerate(price_paths):
+
+            color = (
+                "rgba(16,185,129,0.35)"
+                if path[-1] >= 100
+                else "rgba(239,68,68,0.35)"
+            )
+
+            path_fig.add_trace(
+                go.Scattergl(
+                    x=np.arange(trading_days + 1),
+                    y=path,
+                    mode="lines",
+                    line=dict(
+                        color=color,
+                        width=0.8
+                    ),
+                    name=f"Simulation {i+1}",
+                    showlegend=False,
+                    hovertemplate=(
+                        f"Path: {i+1}<br>"
+                        "Day: %{x}<br>"
+                        "Price Index: %{y:.2f}"
+                        "<extra></extra>"
+                    )
+                )
+            )
+
+        path_fig.add_hline(
+            y=100,
+            line_dash="dash",
+            line_color="white",
+            annotation_text="Initial Price"
+        )
+
+        path_fig.update_layout(
+            title=f"{asset} | Monte Carlo Price Paths",
+            template="plotly_dark",
+            paper_bgcolor="#080B10",
+            plot_bgcolor="#080B10",
+            xaxis_title="Trading Days",
+            yaxis_title="Normalized Price Index",
+            font=dict(
+                family="Menlo, monospace",
+                color="white"
+            ),
+            height=550,
+            hovermode="closest",
+            margin=dict(
+                l=20, r=20, t=60, b=40
+            )
+        )
+
+        st.plotly_chart(
+            path_fig,
+            use_container_width=True
+        )
+
+        st.caption(
+            f"Displaying {n:,} of "
+            f"{total_paths:,} simulated paths. "
+            "Initial price normalized to 100."
+        )
+
+
+
     # RISK HEATMAP
 
     with tab2:
