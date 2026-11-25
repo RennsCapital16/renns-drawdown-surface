@@ -669,6 +669,350 @@ if "result" in st.session_state:
             mime="text/csv"
         )
 
+    # ======================================
+    # ADVANCED MONTE CARLO ANALYTICS V6.0
+    # ======================================
+
+    st.divider()
+
+    st.header("Advanced Monte Carlo Analytics")
+
+    st.caption(
+        "Forward-looking return distribution "
+        "and probabilistic price projections."
+    )
+
+    @st.cache_data(max_entries=8, ttl=3600)
+    def calculate_projection(mu, vol, paths, days):
+
+        rng = np.random.default_rng(42)
+
+        drift = (mu - 0.5 * vol**2) / 252
+        diffusion = vol / np.sqrt(252)
+
+        log_prices = np.zeros(paths)
+
+        quantiles = np.array([
+            0.05, 0.25, 0.50, 0.75, 0.95
+        ])
+
+        bands = np.ones((5, days + 1)) * 100
+
+        for day in range(1, days + 1):
+
+            log_prices += (
+                drift
+                + diffusion
+                * rng.standard_normal(paths)
+            )
+
+            bands[:, day] = 100 * np.exp(
+                np.quantile(
+                    log_prices,
+                    quantiles
+                )
+            )
+
+        terminal_returns = np.expm1(
+            log_prices
+        )
+
+        return bands, terminal_returns
+
+    projection, final_returns = calculate_projection(
+        float(mu),
+        float(volatility),
+        result["paths"],
+        result["days"]
+    )
+
+    p5, p25, p50, p75, p95 = projection
+
+    projection_days = np.arange(
+        result["days"] + 1
+    )
+
+    probability_profit = np.mean(
+        final_returns > 0
+    )
+
+    probability_loss = np.mean(
+        final_returns < 0
+    )
+
+    probability_flat = np.mean(
+        final_returns == 0
+    )
+
+    # ADVANCED METRICS
+
+    a1, a2, a3, a4 = st.columns(4)
+
+    a1.metric(
+        "Probability of Profit",
+        f"{probability_profit:.2%}"
+    )
+
+    a2.metric(
+        "Probability of Loss",
+        f"{probability_loss:.2%}"
+    )
+
+    a3.metric(
+        "Mean Simulated Return",
+        f"{final_returns.mean():.2%}"
+    )
+
+    a4.metric(
+        "Median Simulated Return",
+        f"{np.median(final_returns):.2%}"
+    )
+
+    st.caption(
+        f"Probability of unchanged value: "
+        f"{probability_flat:.2%}. "
+        "Excludes transaction costs and taxes."
+    )
+
+    advanced_tab1, advanced_tab2, advanced_tab3 = st.tabs([
+        "Confidence Bands",
+        "Return Distribution",
+        "Return Percentiles"
+    ])
+
+    # ======================================
+    # CONFIDENCE BANDS
+    # ======================================
+
+    with advanced_tab1:
+
+        band_fig = go.Figure()
+
+        band_fig.add_trace(
+            go.Scatter(
+                x=projection_days,
+                y=p5,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip"
+            )
+        )
+
+        band_fig.add_trace(
+            go.Scatter(
+                x=projection_days,
+                y=p95,
+                fill="tonexty",
+                fillcolor="rgba(59,130,246,0.15)",
+                mode="lines",
+                line=dict(width=0),
+                name="90% Prediction Interval"
+            )
+        )
+
+        band_fig.add_trace(
+            go.Scatter(
+                x=projection_days,
+                y=p25,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip"
+            )
+        )
+
+        band_fig.add_trace(
+            go.Scatter(
+                x=projection_days,
+                y=p75,
+                fill="tonexty",
+                fillcolor="rgba(59,130,246,0.30)",
+                mode="lines",
+                line=dict(width=0),
+                name="50% Prediction Interval"
+            )
+        )
+
+        band_fig.add_trace(
+            go.Scatter(
+                x=projection_days,
+                y=p50,
+                mode="lines",
+                line=dict(
+                    color="#60A5FA",
+                    width=2.5
+                ),
+                name="Median Projection"
+            )
+        )
+
+        band_fig.add_hline(
+            y=100,
+            line_dash="dash",
+            line_color="#AAAAAA",
+            annotation_text="Initial Value"
+        )
+
+        band_fig.update_layout(
+            title=f"{asset} | Monte Carlo Price Projection",
+            template="plotly_dark",
+            paper_bgcolor="#080B10",
+            plot_bgcolor="#080B10",
+            xaxis_title="Trading Days",
+            yaxis_title="Normalized Value Index",
+            height=550,
+            hovermode="x unified",
+            font=dict(
+                family="Menlo, monospace"
+            )
+        )
+
+        st.plotly_chart(
+            band_fig,
+            use_container_width=True,
+            key="renns_projection_bands"
+        )
+
+        st.caption(
+            "Pointwise simulated prediction intervals, "
+            "not confidence intervals for the mean. "
+            "Initial value normalized to 100."
+        )
+
+    # ======================================
+    # TERMINAL RETURN DISTRIBUTION
+    # ======================================
+
+    with advanced_tab2:
+
+        dist_fig = go.Figure()
+
+        returns_pct = final_returns * 100
+
+        edges = np.histogram_bin_edges(
+            returns_pct,
+            bins=80
+        )
+
+        negative_counts, _ = np.histogram(
+            returns_pct[returns_pct < 0],
+            bins=edges
+        )
+
+        positive_counts, _ = np.histogram(
+            returns_pct[returns_pct >= 0],
+            bins=edges
+        )
+
+        centers = (
+            edges[:-1] + edges[1:]
+        ) / 2
+
+        widths = np.diff(edges)
+
+        dist_fig.add_trace(
+            go.Bar(
+                x=centers,
+                y=negative_counts,
+                width=widths,
+                marker_color="#EF4444",
+                name="Negative Returns"
+            )
+        )
+
+        dist_fig.add_trace(
+            go.Bar(
+                x=centers,
+                y=positive_counts,
+                width=widths,
+                marker_color="#10B981",
+                name="Nonnegative Returns"
+            )
+        )
+
+        dist_fig.add_vline(
+            x=0,
+            line_dash="dash",
+            line_color="white"
+        )
+
+        dist_fig.update_layout(
+            title=f"{asset} | Terminal Return Distribution",
+            template="plotly_dark",
+            paper_bgcolor="#080B10",
+            plot_bgcolor="#080B10",
+            xaxis_title="Simulated Return (%)",
+            yaxis_title="Number of Scenarios",
+            barmode="stack",
+            bargap=0,
+            height=500
+        )
+
+        st.plotly_chart(
+            dist_fig,
+            use_container_width=True,
+            key="renns_return_distribution"
+        )
+
+    # ======================================
+    # RETURN PERCENTILES
+    # ======================================
+
+    with advanced_tab3:
+
+        percentile_values = np.quantile(
+            final_returns,
+            [0.05, 0.25, 0.50, 0.75, 0.95]
+        )
+
+        scenario_report = pd.DataFrame({
+
+            "Scenario": [
+                "Pessimistic",
+                "Lower Quartile",
+                "Median",
+                "Upper Quartile",
+                "Optimistic"
+            ],
+
+            "Percentile": [
+                "P5", "P25", "P50", "P75", "P95"
+            ],
+
+            "Simulated Return": [
+                f"{v:.2%}"
+                for v in percentile_values
+            ],
+
+            "Final Value Index": [
+                round(100 * (1 + v), 2)
+                for v in percentile_values
+            ]
+
+        })
+
+        st.dataframe(
+            scenario_report,
+            hide_index=True,
+            use_container_width=True
+        )
+
+        st.download_button(
+            "Download Return Scenarios",
+            scenario_report.to_csv(index=False),
+            file_name=f"{asset}_Return_Scenarios.csv",
+            mime="text/csv",
+            key="renns_return_export"
+        )
+
+    st.caption(
+        "RENNS QUANT V6.0 | "
+        "Model-based probabilistic estimates. "
+        "Not guaranteed future returns."
+    )
+
+
     st.success(
         "RENNS QUANT ENGINE: MATHEMATICAL CHECKS PASSED"
     )
